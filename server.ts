@@ -3,12 +3,42 @@ import express from 'express';
 import type { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = Number(process.env.PORT) || 3000;
+function resolveCliFlag(flag: string): string | undefined {
+  const args = process.argv.slice(2);
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === flag && args[i + 1]) {
+      return args[i + 1];
+    }
+    if (args[i].startsWith(`${flag}=`)) {
+      return args[i].slice(flag.length + 1);
+    }
+  }
+  return undefined;
+}
+
+function resolvePort(): number {
+  const cliPort = resolveCliFlag('--port');
+  if (cliPort) {
+    const parsed = Number(cliPort);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  if (process.env.NODE_ENV !== 'production') {
+    return Number(process.env.DEFAULT_APP_PORT) || 3000;
+  }
+  const envPort = Number(process.env.PORT);
+  const nginxPort = Number(process.env.NGINX_PORT);
+  if (envPort && envPort !== nginxPort) {
+    return envPort;
+  }
+  return Number(process.env.DEFAULT_APP_PORT) || 3000;
+}
+
+const PORT = resolvePort();
+const HOST = resolveCliFlag('--host') || '0.0.0.0';
 
 interface QASchemaPayload {
   years: number[];
@@ -32,12 +62,13 @@ interface QARequestBody {
   history?: QAHistoryItem[];
 }
 
-function createGeminiClient() {
+async function createGeminiClient() {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return null;
   }
-  return new GoogleGenAI({
+  const { GoogleGenAI, Type, ThinkingLevel } = await import('@google/genai');
+  const ai = new GoogleGenAI({
     apiKey,
     httpOptions: {
       headers: {
@@ -45,6 +76,7 @@ function createGeminiClient() {
       },
     },
   });
+  return { ai, Type, ThinkingLevel };
 }
 
 async function generateWithRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
@@ -108,14 +140,15 @@ async function startServer() {
         return;
       }
 
-      const ai = createGeminiClient();
-      if (!ai) {
+      const gemini = await createGeminiClient();
+      if (!gemini) {
         res.status(500).json({
           error:
             'Kunci API Gemini belum dikonfigurasi pada server. Silakan periksa pengaturan di panel Settings > Secrets.',
         });
         return;
       }
+      const { ai, Type, ThinkingLevel } = gemini;
 
       const historyText =
         Array.isArray(body.history) && body.history.length > 0
@@ -313,12 +346,34 @@ Aturan pemetaan kueri:
 
   // Setup Vite middleware untuk pengembangan atau sajikan dist di produksi
   if (process.env.NODE_ENV !== 'production') {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
+    let viteMiddleware: express.RequestHandler | null = null;
+    const viteReadyPromise = import('vite')
+      .then(async ({ createServer: createViteServer }) => {
+        const vite = await createViteServer({
+          server: { middlewareMode: true },
+          appType: 'spa',
+        });
+        viteMiddleware = vite.middlewares;
+        return vite;
+      })
+      .catch((err) => {
+        console.error('Gagal menginisialisasi Vite middleware:', err);
+        throw err;
+      });
+
+    app.use(async (req, res, next) => {
+      try {
+        if (!viteMiddleware) {
+          await viteReadyPromise;
+        }
+        if (viteMiddleware) {
+          return viteMiddleware(req, res, next);
+        }
+        next();
+      } catch (err) {
+        next(err);
+      }
     });
-    app.use(vite.middlewares);
   } else {
     const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));
@@ -327,8 +382,8 @@ Aturan pemetaan kueri:
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server berjalan di http://0.0.0.0:${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`Server berjalan di http://${HOST}:${PORT}`);
   });
 }
 

@@ -32,7 +32,6 @@ import {
   Trash2,
   ChevronDown,
   ChevronUp,
-  HelpCircle,
 } from 'lucide-react';
 
 interface NaturalLanguageQAProps {
@@ -49,13 +48,6 @@ interface QAEntry {
   result: QAExecutionResult;
   viewMode: 'both' | 'chart' | 'table';
 }
-
-const EXAMPLE_QUESTIONS = [
-  'Kabupaten mana dengan populasi sapi tertinggi tahun 2023?',
-  'Bagaimana tren produksi daging di seluruh provinsi?',
-  'Komposisi produksi telur per jenis ternak tahun 2024',
-  'Bandingkan populasi dan pemotongan sapi di Kubu Raya dan Ketapang tahun 2024',
-];
 
 const formatCompact = (val: number) => {
   if (val >= 1000000) return `${(val / 1000000).toFixed(1)}jt`;
@@ -275,25 +267,6 @@ export const NaturalLanguageQA: React.FC<NaturalLanguageQAProps> = ({
               )}
             </button>
           </form>
-
-          {/* Contoh Pertanyaan Cepat */}
-          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1 mr-1">
-              <HelpCircle className="w-3 h-3 text-emerald-700" />
-              Contoh pertanyaan:
-            </span>
-            {EXAMPLE_QUESTIONS.map((ex, idx) => (
-              <button
-                key={idx}
-                type="button"
-                disabled={isLoading}
-                onClick={() => handleAsk(ex)}
-                className="text-[11px] px-2.5 py-1 rounded-md bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border border-emerald-200/80 transition-colors cursor-pointer disabled:opacity-50 text-left"
-              >
-                {ex}
-              </button>
-            ))}
-          </div>
 
           {/* Pesan Galat */}
           {errorMsg && (
